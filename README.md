@@ -39,4 +39,7 @@ WIN UI3占用和体积刹不住\
 
 
 为什么不用`shell:Startup`
+
 每次开机进桌面弹出一个UAC 提示非常的不优雅
+
+<img width="1018" height="908" alt="屏幕截图 2026-01-03 151429" src="https://github.com/user-attachments/assets/50e760ae-b3f8-4edb-83b7-68ead713aa13" />
