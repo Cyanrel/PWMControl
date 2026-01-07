@@ -6,16 +6,21 @@ namespace PwmControl
 {
     public partial class ConfirmWindow : Window
     {
-        private DispatcherTimer _timer;
-        private int _timeLeft = 15; // 倒计时秒数
+        private readonly DispatcherTimer _timer;
+        private int _timeLeft = 11; // 倒计时秒数,记得去xaml同步修改
 
         public ConfirmWindow()
         {
             InitializeComponent();
 
+            // 立即刷新一次 UI，防止界面刚出来显示默认文本
+            UpdateUiText();
+
             // 初始化定时器
-            _timer = new DispatcherTimer();
-            _timer.Interval = TimeSpan.FromSeconds(1);
+            _timer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1)
+            };
             _timer.Tick += Timer_Tick;
             _timer.Start();
         }
@@ -23,15 +28,22 @@ namespace PwmControl
         private void Timer_Tick(object? sender, EventArgs e)
         {
             _timeLeft--;
-            TxtTimer.Text = $"{_timeLeft} 秒后自动还原";
-            TxtMessage.Text = $"如果屏幕正常显示，请在 {_timeLeft} 秒内点击确认";
+            UpdateUiText();
 
             if (_timeLeft <= 0)
             {
-                // 时间到！视为测试失败，返回 false
+                // 时间到，自动还原
                 _timer.Stop();
                 this.DialogResult = false;
                 this.Close();
+            }
+        }
+        private void UpdateUiText()
+        {
+
+            if (TxtMessage != null)
+            {
+                TxtMessage.Text = $"在 {_timeLeft} 秒内还原为以前的显示器设置。";
             }
         }
 

@@ -12,28 +12,55 @@ namespace PwmControl
 
     public static class ConfigManager
     {
-        // 配置文件固定存放位置：C:\Users\用户名\AppData\Local\PwmControl\config.json
-        // 这样无论 exe 在哪里，读取的都是同一个配置
-        private static readonly string ConfigFolder = Path.Combine(
+
+        // 缓存 JsonSerializerOptions 实例
+        // 避免在每次 Save 时重复创建，提高性能并复用内部元数据缓存
+        private static readonly JsonSerializerOptions _jsonOptions = new()
+        {
+            WriteIndented = true
+        };
+        // 定义两个路径
+        // 1. AppData 路径 (全局位置)
+        private static readonly string AppDataPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PwmControl");
+            "Programs", "PwmControl", "config.json");
 
-        private static readonly string ConfigPath = Path.Combine(ConfigFolder, "config.json");
+        // 2. EXE 旁边的路径 (便携/本地位置)
+        private static readonly string LocalPath = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "config.json");
 
+        /// <summary>
+        /// 智能获取当前应该使用的配置文件路径
+        /// </summary>
+        private static string GetActiveConfigPath()
+        {
+            // 核心逻辑：
+            // 如果 AppData 下的配置文件已经存在，就优先用它
+            if (File.Exists(AppDataPath))
+            {
+                return AppDataPath;
+            }
+
+            // 如果 AppData 下没有，说明可能是第一次运行或者绿色版模式
+            // 此时“跟随 EXE”，返回 EXE 所在的目录
+            return LocalPath;
+        }
         public static AppConfig Load()
         {
             try
             {
-                if (File.Exists(ConfigPath))
+                string targetPath = GetActiveConfigPath();
+
+                if (File.Exists(targetPath))
                 {
-                    string json = File.ReadAllText(ConfigPath);
+                    string json = File.ReadAllText(targetPath);
                     var config = JsonSerializer.Deserialize<AppConfig>(json);
                     return config ?? new AppConfig();
                 }
             }
             catch
             {
-                // 如果读取失败（文件损坏等），返回默认值
+                // 读取失败返回默认
             }
             return new AppConfig();
         }
@@ -42,18 +69,35 @@ namespace PwmControl
         {
             try
             {
-                if (!Directory.Exists(ConfigFolder))
+                string targetPath = GetActiveConfigPath();
+
+                if (targetPath == LocalPath)
                 {
-                    Directory.CreateDirectory(ConfigFolder);
+                    string currentDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
+                    string desktopDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop).TrimEnd('\\');
+
+                    //// 比较路径：如果在桌面运行
+                    //if (currentDir.Equals(desktopDir, StringComparison.OrdinalIgnoreCase))
+                    //{
+                    //    // 强制改写到 AppDataPath (Programs\PwmControl)
+                    //    // 这样桌面就只会有一个 clean 的 EXE，不会生成 json
+                    //    targetPath = AppDataPath;
+                    //}
+                }
+
+                // 确保文件夹存在
+                string? dir = Path.GetDirectoryName(targetPath);
+                if (dir != null && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
                 }
 
                 var config = new AppConfig { LastFrequency = frequency };
-                string json = JsonSerializer.Serialize(config);
-                File.WriteAllText(ConfigPath, json);
+                File.WriteAllText(targetPath, JsonSerializer.Serialize(config, _jsonOptions));
             }
             catch
             {
-                // 保存失败忽略，或者弹窗提示
+                // 忽略保存错误
             }
         }
     }

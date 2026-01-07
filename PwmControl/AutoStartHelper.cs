@@ -13,36 +13,61 @@ namespace PwmControl
         // 检查当前是否已经开启了自启动
         public static bool IsAutoStartEnabled()
         {
-            using (var process = new Process())
+            string currentExe = Process.GetCurrentProcess().MainModule?.FileName ?? "";
+            if (string.IsNullOrEmpty(currentExe)) return false;
+
+            try
             {
-                process.StartInfo.FileName = "schtasks";
-                process.StartInfo.Arguments = $"/Query /TN \"{TaskName}\"";
-                process.StartInfo.CreateNoWindow = true;
+                using var process = new Process();
+                process.StartInfo.FileName = "powershell";
+                // 核心指令：获取指定任务的“执行程序路径”
+                // 如果任务不存在，Get-ScheduledTask 会报错（被 SilentlyContinue 吞掉），返回空
+                // 如果存在，输出它的 Execute 属性（即 exe 路径）
+                string cmd = $"$t = Get-ScheduledTask -TaskName '{TaskName}' -ErrorAction SilentlyContinue; if ($t) {{ $t.Actions.Execute }}";
+
+                process.StartInfo.Arguments = $"-NoProfile -WindowStyle Hidden -Command \"{cmd}\"";
                 process.StartInfo.UseShellExecute = false;
                 process.StartInfo.RedirectStandardOutput = true;
+                process.StartInfo.CreateNoWindow = true;
                 process.Start();
+
+                // 读取输出并去除首尾空白（PowerShell 可能会带换行符）
+                string output = process.StandardOutput.ReadToEnd().Trim();
                 process.WaitForExit();
 
-                // 如果退出代码是0，说明任务存在
-                return process.ExitCode == 0;
+                string currentFileName = Path.GetFileName(currentExe);
+
+                // 判定条件改为：
+                // 1. 任务路径里包含我当前的文件名 (例如 PwmControl-v0.2.exe)
+                //    OR
+                // 2. 任务路径里包含标准文件名 (PwmControl.exe)
+                // 这样你改名测试时，勾选框依然会显示“已勾选”
+                bool isSelf = output.IndexOf(currentFileName, StringComparison.OrdinalIgnoreCase) >= 0;
+                bool isStandard = output.IndexOf("PwmControl.exe", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                return isSelf || isStandard;
+            }
+            catch
+            {
+                return false;
             }
         }
 
-        // 开启自启动 (创建最高权限任务)
-        // 如果不传参数，就默认用当前程序的路径
         public static void EnableAutoStart(string? customPath = null)
         {
             string exePath = customPath ?? Process.GetCurrentProcess().MainModule?.FileName ?? "";
-
             if (string.IsNullOrEmpty(exePath)) return;
 
-            // 依然加上 -silent 参数
-            string cmd = $"/Create /TN \"{TaskName}\" /TR \"\\\"{exePath}\\\" -silent\" /SC ONLOGON /RL HIGHEST /F";
+            // 创建基础任务
+            string createCmd = $"/Create /TN \"{TaskName}\" /TR \"\\\"{exePath}\\\" -silent\" /SC ONLOGON /RL HIGHEST /F";
+            RunSchTasks(createCmd);
 
-            RunSchTasks(cmd);
+            // PowerShell 修正电池策略
+            string psCommand = $"$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 00:00:00; Set-ScheduledTask -TaskName '{TaskName}' -Settings $s";
+
+            RunPowerShell(psCommand);
         }
 
-        // 关闭自启动
         public static void DisableAutoStart()
         {
             string cmd = $"/Delete /TN \"{TaskName}\" /F";
@@ -51,27 +76,29 @@ namespace PwmControl
 
         private static void RunSchTasks(string arguments)
         {
-            using (var process = new Process())
-            {
-                process.StartInfo.FileName = "schtasks";
-                process.StartInfo.Arguments = arguments;
-                // 关闭 ShellExecute，直接启动进程
-                process.StartInfo.UseShellExecute = false;
+            using var process = new Process();
+            process.StartInfo.FileName = "schtasks";
+            process.StartInfo.Arguments = arguments;
+            process.StartInfo.UseShellExecute = false;
+            process.StartInfo.CreateNoWindow = true;
+            process.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
+            process.Start();
+            process.WaitForExit();
+        }
 
-                // 彻底禁止创建窗口
+        private static void RunPowerShell(string command)
+        {
+            try
+            {
+                using var process = new Process();
+                process.StartInfo.FileName = "powershell";
+                process.StartInfo.Arguments = $"-NoProfile -WindowStyle Hidden -Command \"{command}\"";
+                process.StartInfo.UseShellExecute = false;
                 process.StartInfo.CreateNoWindow = true;
-               
-                process.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
-                try
-                {
-                    process.Start();
-                    process.WaitForExit();
-                }
-                catch (Exception ex)
-                {
-                    throw new Exception("无法设置自启动，请确保主程序已获管理员权限。\n" + ex.Message);
-                }
+                process.Start();
+                process.WaitForExit();
             }
+            catch { }
         }
     }
 }

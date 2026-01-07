@@ -8,7 +8,7 @@ namespace PwmControl
 {
     public partial class MainWindow : Window
     {
-        private PwmService? _pwmService;
+        private readonly PwmService? _pwmService;
 
         public MainWindow()
         {
@@ -107,11 +107,11 @@ namespace PwmControl
                 int oldFreq = 0;
                 try
                 {
-                    // 1. 先读取并保存旧频率（为了能还原）
+                    // 先读取并保存旧频率
                     var (current, _) = _pwmService.ReadFrequency();
                     oldFreq = current;
 
-                    // 2. 如果新旧频率一样，就不折腾了
+                    // 如果新旧频率一样，就变
                     if (oldFreq == newFreq)
                     {
                         MessageBox.Show("当前已经是这个频率了。");
@@ -123,7 +123,7 @@ namespace PwmControl
 
                     // 4. 立即弹出倒计时窗口（模态窗口，会阻塞代码执行，直到窗口关闭）
                     // 只要屏幕没黑，用户就能看到这个窗口
-                    ConfirmWindow confirmDlg = new ConfirmWindow();
+                    ConfirmWindow confirmDlg = new();
                     bool? result = confirmDlg.ShowDialog();
 
                     // 5. 判断结果
@@ -164,7 +164,7 @@ namespace PwmControl
         {
             try
             {
-                // 1. 获取状态
+                // 获取状态
                 bool isEnabled = AutoStartHelper.IsAutoStartEnabled();
 
                 // 【自愈逻辑】
@@ -176,8 +176,16 @@ namespace PwmControl
                     string? currentPath = Process.GetCurrentProcess().MainModule?.FileName;
                     if (!string.IsNullOrEmpty(currentPath))
                     {
-                        // 这句会覆盖旧任务，修正路径
-                        AutoStartHelper.EnableAutoStart(currentPath);
+                        string currentName = Path.GetFileName(currentPath);
+
+                        // 只有当当前运行的文件名就是 "PwmControl.exe" 时，才去执行路径修正。
+                        // 如果你是 "PWMControl-v0.2.exe"，说明你在测试，
+                        // 此时虽然 UI 显示已勾选（因为 AutoStartHelper 兼容了），但不要去乱改后台的任务路径。
+                        if (currentName.Equals("PwmControl.exe", StringComparison.OrdinalIgnoreCase))
+                        {
+                            // 再次确认：只有路径真的变了才去覆盖，减少磁盘写入
+                            AutoStartHelper.EnableAutoStart(currentPath);
+                        }
                     }
                 }
 
